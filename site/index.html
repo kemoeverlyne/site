@@ -1,37 +1,197 @@
 <!DOCTYPE html>
+<html>
 
-<html lang="en">
-  <head>
-    <meta charset="utf-8" />
-    <title>NGINX on Railway</title>
-    <meta name="description" content="Choo Choo!" />
+<head>
+    <meta charset="UTF-8">
+    <title>URL Checker</title>
+    <script src="https://cdn.jsdelivr.net/npm/puppeteer@13.1.0"></script>
+    <script>
 
-    <link rel="icon" href="/favicon.ico" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
+        async function checkUrls(urls, expectedTitle) {
+            const results = [];
 
-    <link rel="stylesheet" href="/styles.css?v=1.0" />
-  </head>
+            const browser = await puppeteer.launch();
+            const page = await browser.newPage();
 
-  <body>
-    <main>
-      <img
-        src="https://railway.app/brand/logo-light.svg"
-        alt="Railway logo"
-        class="logo"
-      />
+            for (let i = 0; i < urls.length; i++) {
+                const url = urls[i].trim();
 
-      <h1>NGINX on Railway</h1>
+                // Check page title
+                let pageTitlePassed = false;
+                try {
+                    await page.goto(url);
+                    const pageTitle = await page.title();
+                    pageTitlePassed = pageTitle === expectedTitle;
+                } catch (e) {
+                    console.error(e);
+                }
 
-      <p>
-        Choo Choo! This is an example of an NGINX static site running on
-        Railway.
-        <a
-          href="https://github.com/railwayapp/starters/tree/master/examples/nginx"
-          >View source</a
-        >.
-      </p>
-    </main>
+                // Check menu functionality
+                let menuFunctionalityPassed = false;
+                let submenuFunctionalityPassed = false;
+                try {
+                    await page.waitForSelector(".menu-button");
+                    await page.click(".menu-button");
+                    await page.waitForSelector(".menu-item");
+                    const menuItems = await page.$$(".menu-item");
+                    if (menuItems.length > 0) {
+                        menuFunctionalityPassed = true;
+                        const menuItem = menuItems[0];
+                        await menuItem.hover();
+                        const menuItemBgColor = await page.evaluate(
+                            (el) => getComputedStyle(el).backgroundColor,
+                            menuItem
+                        );
+                        if (menuItemBgColor === "rgb(40, 40, 40)") {
+                            submenuFunctionalityPassed = true;
+                        }
+                    }
+                } catch (e) {
+                    console.error(e);
+                }
 
-    <script src="/script.js"></script>
-  </body>
+                // Check translation level
+                let translationLevel = 0;
+                try {
+                    const hindiTextPresent = await page.evaluate(() => {
+                        const bodyText = document.body.innerText;
+                        return /[\u0900-\u097F]/.test(bodyText);
+                    });
+                    if (hindiTextPresent) {
+                        translationLevel = 1;
+                        const links = await page.$$("a");
+                        for (const link of links) {
+                            const href = await page.evaluate((el) => el.href, link);
+                            if (href.startsWith(url) && !href.endsWith(".pdf")) {
+                                await link.click();
+                                await page.waitForNavigation({waitUntil: "networkidle0"});
+                                const innerHindiTextPresent = await page.evaluate(() => {
+                                    const bodyText = document.body.innerText;
+                                    return /[\u0900-\u097F]/.test(bodyText);
+                                });
+                                if (innerHindiTextPresent) {
+                                    translationLevel = 2;
+                                }
+                                await page.goBack();
+                            }
+                        }
+                    }
+                } catch (e) {
+                    console.error(e);
+                }
+
+                // Check image resolution
+                let imageResolutionPassed = true;
+                try {
+                    const images = await page.$$("img");
+                    for (const image of images) {
+                        const dimensions = await image.boundingBox();
+                        if (dimensions.width < 500 || dimensions.height < 500) {
+                            imageResolutionPassed = false;
+                            break;
+                        }
+                    }
+                } catch (e) {
+                    console.error(e);
+                }
+
+                results.push({
+                    url: url,
+                    pageTitlePassed: pageTitlePassed,
+                    menuFunctionalityPassed: menuFunctionalityPassed,
+                    submenuFunctionalityPassed: submenuFunctionalityPassed,
+                    translationLevel: translationLevel,
+                    imageResolutionPassed: imageResolutionPassed,
+                });
+            }
+
+            await browser.close();
+
+            return results;
+        }
+
+        async function processUrls() {
+            const urlList = document.getElementById("urlList");
+            const urls = urlList.value.split("\n").filter((url) => url.trim() !== "");
+
+            const results = await checkUrls(urls, "My Website Title");
+
+            const passFailMessages = results.map((result) => {
+                if (
+                    result.pageTitlePassed &&
+                    result.menuFunctionalityPassed &&
+                    result.submenuFunctionalityPassed &&
+                    result.translationLevel >= 1 &&
+                    result.imageResolutionPassed
+                ) {
+                    return `${result.url}: Pass`;
+                } else {
+                    return `${result.url}: Fail`;
+                }
+            });
+
+            const resultDiv = document.getElementById("result");
+            resultDiv.textContent = passFailMessages.join("\n");
+        }
+
+    </script>
+    <style>
+        body {
+            font-family: sans-serif;
+        }
+
+        label {
+            display: block;
+            margin-bottom: 0.5em;
+        }
+
+        textarea {
+            width: 100%;
+            height: 10em;
+        }
+
+        button {
+            margin-top: 0.5em;
+            padding: 0.5em 1em;
+            border: none;
+            border-radius: 3px;
+            background-color: #4CAF50;
+            color: white;
+            cursor: pointer;
+            transition: background-color 0.3s;
+        }
+
+        button:hover {
+            background-color: #2E8B57;
+        }
+
+        #results {
+            margin-top: 1em;
+        }
+
+        .pass {
+            background-color: #DFF2BF;
+            color: #4F8A10;
+            padding: 0.5em;
+            margin-bottom: 0.5em;
+            border-radius: 3px;
+        }
+
+        .fail {
+            background-color: #FFBABA;
+            color: #D8000C;
+            padding: 0.5em;
+            margin-bottom: 0.5em;
+            border-radius: 3px;
+        }
+    </style>
+</head>
+
+<body>
+    <label for="urls">Enter URLs, separated by line breaks:</label>
+    <textarea id="urls"></textarea>
+    <button onclick="checkUrls()">Check URLs</button>
+    <div id="results"></div>
+</body>
+
 </html>
